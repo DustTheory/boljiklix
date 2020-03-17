@@ -1,0 +1,2 @@
+# boljiklix
+klix.ba plugin
