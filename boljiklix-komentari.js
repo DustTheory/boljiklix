@@ -18,7 +18,7 @@ $("head").append(`
 
 .tipkomentar > span.minmax-btn {
   position: absolute;
-  top: 50px;
+  top: 10px;
   right: 30px;
 }
 
