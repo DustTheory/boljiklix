@@ -57,6 +57,10 @@ $("head").append(`
   background-color: white;
 }
 
+.bk-green {
+  color: green;
+}
+
 .boljiklix-settings {
   display: none;
 	position: fixed;
@@ -146,6 +150,7 @@ let settingsTemplate = `
 `;
 
 
+// Generates an html code string for a "bk-notification" element
 function generateNotification(type, commentId, valueChange, responseData){
 	let notificationData = encodeURIComponent(JSON.stringify({
 		type: type,
@@ -161,18 +166,19 @@ function generateNotification(type, commentId, valueChange, responseData){
 		notificationText = `${responseData.responderUsername} je odgovorio na vas post ${commentId}: ${responseData.responseText}`;
 	return `
 		<div data-notificationdata="${notificationData}" class="bk-notification">
-			<a href="#">${notificationText}</a>
+			<a href="/komentar/${commentId}">${notificationText}</a>
 			<a class="bk-delete-notification-btn" href="#">Ukloni</a>
 		</div>
 	`;
 }
 
-function generateThreadwatcherThread(comment, numRespnses, numResponsesChange){
+// Generates an html code string for a "bk-threadwatcher-thread" element
+function generateThreadwatcherThread(threadId, comment, numResponses, numResponsesChange){
   return `
-  		<div class="bk-threadwatcher-thread">
-			<a href="#">
-      <span class="${numresponsesChange > 0 ? 'green': ''}">
-      ${numResponses} (+${numResponseChange})
+  		<div class="bk-threadwatcher-thread" id="bk-threadwathcer-thread-${threadId}">
+			<a href="/komentar/${threadId}">
+      <span class="${numResponsesChange > 0 ? 'bk-green': ''}">
+      ${numResponses} (+${numResponsesChange})
       </span>
       ${comment}
       </a>
@@ -184,46 +190,68 @@ function generateThreadwatcherThread(comment, numRespnses, numResponsesChange){
 async function refresh() {
 	await refreshComments();
 	await refreshNotifications();
-	await refreshThreadWatcher();
+	await refreshThreadwatcher();
 }
 
 async function refreshComments() {
 
 }
 
-async function refreshThreadWatcher(){
+// Updates threadwatcher with fresh data about watched threads
+async function refreshThreadwatcher(){
   let threadwatcherData = await GM_getValue("boljiklix-threadwatcher", {});
   threadwatcher.empty();
   for(threadId  in threadwatcherData){
     let thread = threadwatcherData[threadId];
-    let responses = await getNewResponses(threadId, thread.lastResponse);
+    let responses = await getNewResponses(threadId, thread.lastCheck);
     let numResponses = thread.brojOdgovora;
-    if(!responses)
-      console.log('err', thread);
-    else
-      numResponses += responses.length;
-    let threadElement = $(generateThreadwatcherThread(thread.komentar, numResponses, numResponses-thread.numResponses)).appendTo(threadwatcher);    
-    threadElement.find(".bk-delete-thread-btn").click(async ()=>{
-      threadElement.remove();
-      let threadwatcherData = await GM_getValue("boljiklix-threadwatcher", {});
-      delete threadwatcherData[threadId];
-    });
+    numResponses += responses.length;
+    await createThreadwatcherThreadElement(thread, numResponses);
   }
 }
 
-
-function getMyUsername() {
-	let usernameLink = $(".username-link");
-	if (!usernameLink)
-		return false;
-	return usernameLink.attr('href').split('profil/').slice(-1)[0];
+// Creates threadwatcherThread element and appends it to the threadwatcher
+async function createThreadwatcherThreadElement(thread, newNumResponses = 0){
+ let numResponsesChange = newNumResponses - thread.brojOdgovora;
+ let threadwatcherThreadElement = $(generateThreadwatcherThread(thread.id, thread.komentar, newNumResponses, numResponsesChange )).appendTo(threadwatcher);    
+  threadwatcherThreadElement.find(".bk-delete-thread-btn").click(async () => {
+    await unfollowThread(thread.id);
+  });
+  return threadwatcherThreadElement;
 }
 
+// Adds thread to threadwatcher
+async function followThread(threadId){
+  let threadwatcherData = await GM_getValue("boljiklix-threadwatcher", {});
+  let thread = await getThread(threadId);
+  thread.lastCheck = new Date();
+  threadwatcherData[threadId] = thread;
+  await createThreadwatcherThreadElement(thread);
+  await GM_setValue("boljiklix-threadwatcher", threadwatcherData);
+}
+
+// Returns the threadwatcherThread element inside threadwathcer with id
+function getThreadwatcherThreadElement(threadId){
+  return $(`#bk-threadwathcer-thread-${threadId}`);
+}
+
+// Removes thread from threadwatcher
+async function unfollowThread(threadId){
+    let threadwatcherData = await GM_getValue("boljiklix-threadwatcher", {});
+    getThreadwatcherThreadElement(threadId).remove();
+    delete threadwatcherData[threadId];
+    await GM_setValue("boljiklix-threadwatcher", threadwatcherData);
+}
+
+// Updates the notifications element with fresh data about user's own comments
 async function refreshNotifications() {
 	let newRateUps = {};
 	let newRateDowns = {};
 	let newResponses = [];
-	let commentsList = await getMyCommentsList();
+  let username = getMyUsername();
+	if (!username)
+		return;
+	let commentsList = await getMyCommentsList(username);
 	let oldCommentsList = await GM_getValue("boljiklix-myOldComments", {});
 	await Promise.all(commentsList.map(async (comment) => {
 		if (comment.id == -1)
@@ -259,10 +287,24 @@ async function refreshNotifications() {
 	renderNotifications(newRateUps, newRateDowns, newResponses, new Date());
 };
 
-async function getNewResponses(commentId, lastResponse) {
-	let result = await $.ajax({
+function getMyUsername() {
+	let usernameLink = $(".username-link");
+	if (!usernameLink)
+		return false;
+	return usernameLink.attr('href').split('profil/').slice(-1)[0];
+}
+
+// Given a commentId of a comment in a thread, returns the "komentar" object of the thread root comment
+async function getThread(commentId){ 
+  let result = await $.ajax({
 		url: "https://api.klix.ba/v1/komentar/" + commentId,
 	});
+  return result;
+}
+  
+// Given a commentId of a comment in a thread and a date, returns all responses to the the root comment of the thread posted later than the date passed
+async function getNewResponses(commentId, lastResponse) {  
+	let result = await getThread(commentId);
   if(!result.odgovori)
     return;
 	result.odgovori.filter(odg => {
@@ -271,12 +313,10 @@ async function getNewResponses(commentId, lastResponse) {
 	return result.odgovori;
 }
 
-async function getMyCommentsList() {
-	if(!boljiklixSettings)
+// Returns an array of comments by user ("komentar" objects). Number of comments returned is determined in boljiklixSettings.
+async function getMyCommentsList(username) {
+  if(!boljiklixSettings)
 		await loadSettings();
-	let username = getMyUsername();
-	if (!username)
-		return;
 	let comments = [];
 	while(comments.length < boljiklixSettings.toolbarMaxComments && (comments.length < boljiklixSettings.toolbarMinComments || new Date(comments[comments.length - 1].datum) >= boljiklixSettings.toolbarEarliestDate())){
 		let lastId = comments.length ? comments[comments.length-1].id : undefined;
@@ -289,6 +329,9 @@ async function getMyCommentsList() {
 	return comments;
 }
 
+// Use klix's api to grab the next batch of comments by user.
+// if lastId is undefined it returns the latest batch of comments.
+// otherwise returns the batch where lastId is 
 async function getNextCommentsPage(username, lastId) {
 	let result =  await $.ajax({
 		url: `https://api.klix.ba/v1/komentari/${username}?lastID=${lastId}}`
@@ -331,6 +374,10 @@ async function renderNotifications(rateUps, rateDowns, responses, lastRefresh) {
 	});
 }
 
+async function loadThreadwatcher(){
+  await refreshThreadwatcher();
+}
+
 async function loadNotifications(){
 	let notifications = await GM_getValue("boljiklix-notifications", {
 		rateUps: {},
@@ -356,7 +403,7 @@ async function loadSettings(){
 		autoRefreshInterval: 1000*60,
 
 		watchThreadOnComment: true,
-		threadWatcherThreadExpiryTime: 1000*60*60*24*7
+		threadwatcherThreadExpiryTime: 1000*60*60*24*7
 	});
 	boljiklixSettings = settings;
 	let minCommentsInput = $('#bk-settings-tb-min-comments');
@@ -366,8 +413,8 @@ async function loadSettings(){
 	let autoRefreshIntervalInput = $("#bk-settings-auto-refresh-interval");
 	let autoRefreshIntervalUnitSelect = $("#bk-settings-auto-refresh-interval-unit");
 	let watchThreadOnCommentCheckbox = $("#bk-settings-watch-thread-on-comment");
-	let threadWatcherExpiryTimeInput = $("#bk-settings-tb-thread-watcher-expiry-time");
-	let threadWatcherExpiryTimeUnitSelect = $("#bk-settings-tb-thread-watcher-expiry-time-unit");
+	let threadwatcherExpiryTimeInput = $("#bk-settings-tb-thread-watcher-expiry-time");
+	let threadwatcherExpiryTimeUnitSelect = $("#bk-settings-tb-thread-watcher-expiry-time-unit");
 
 	minCommentsInput.val(settings.toolbarMinComments);
 	maxCommentsInput.val(settings.toolbarMaxComments);
@@ -382,9 +429,9 @@ async function loadSettings(){
 
 	watchThreadOnCommentCheckbox.prop('checked', settings.watchThreadOnComment);
 
-	let twetTimeAndUnit = convertTimeToUnit(settings.threadWatcherThreadExpiryTime)
-	threadWatcherExpiryTimeInput.val(twetTimeAndUnit.time);
-	threadWatcherExpiryTimeUnitSelect.val(twetTimeAndUnit.unit);
+	let twetTimeAndUnit = convertTimeToUnit(settings.threadwatcherThreadExpiryTime)
+	threadwatcherExpiryTimeInput.val(twetTimeAndUnit.time);
+	threadwatcherExpiryTimeUnitSelect.val(twetTimeAndUnit.unit);
 }
 
 async function saveSettings(){
@@ -399,7 +446,7 @@ async function saveSettings(){
 		autoRefreshInterval: 1000*60,
 
 		watchThreadOnComment: true,
-		threadWatcherThreadExpiryTime: 1000*60*60*24*7
+		threadwatcherThreadExpiryTime: 1000*60*60*24*7
 	});
 
 	let minCommentsInput = $('#bk-settings-tb-min-comments');
@@ -409,8 +456,8 @@ async function saveSettings(){
 	let autoRefreshIntervalInput = $("#bk-settings-auto-refresh-interval");
 	let autoRefreshIntervalUnitSelect = $("#bk-settings-auto-refresh-interval-unit");
 	let watchThreadOnCommentCheckbox = $("#bk-settings-watch-thread-on-comment");
-	let threadWatcherExpiryTimeInput = $("#bk-settings-tb-thread-watcher-expiry-time");
-	let threadWatcherExpiryTimeUnitSelect = $("#bk-settings-tb-thread-watcher-expiry-time-unit");
+	let threadwatcherExpiryTimeInput = $("#bk-settings-tb-thread-watcher-expiry-time");
+	let threadwatcherExpiryTimeUnitSelect = $("#bk-settings-tb-thread-watcher-expiry-time-unit");
 
 	if(isNaN(minCommentsInput.val()))
 		console.log('ERROR: minCommentsInput NaN');
@@ -434,10 +481,10 @@ async function saveSettings(){
 
 	settings.watchThreadOnComment = watchThreadOnCommentCheckbox.prop('checked');
 
-	if(isNaN(threadWatcherExpiryTimeInput.val()))
-		console.log('ERROR: threadWatcherExpiryTime NaN');
+	if(isNaN(threadwatcherExpiryTimeInput.val()))
+		console.log('ERROR: threadwatcherExpiryTime NaN');
 	else
-		settings.threadWatcherThreadExpiryTime = convertTimeFromUnit(threadWatcherExpiryTimeInput.val(), threadWatcherExpiryTimeUnitSelect.val());
+		settings.threadwatcherThreadExpiryTime = convertTimeFromUnit(threadwatcherExpiryTimeInput.val(), threadwatcherExpiryTimeUnitSelect.val());
 
 	await GM_setValue("boljiklix-settings", settings);
 	boljiklixSettings = settings;
@@ -494,14 +541,13 @@ $(".bk-tb-settings-btn").click(toggleSettings);
 $(".bk-tb-threadwatcher-btn").click(toggleThreadwatcher);
 $("#bk-settings-save-btn").click(saveSettings);
 
-loadNotifications();
 loadSettings();
+loadNotifications();
+loadThreadwatcher();
 
 $(document).on('click', '.bk-delete-notification-btn', async function(e){
 	let notification = $(e.target).closest('.bk-notification');
 	let notificationData = JSON.parse(decodeURIComponent(notification.attr('data-notificationdata')));
-	console.log(notificationData);
-	console.log(notification);
 	let oldCommentsList = await GM_getValue("boljiklix-myOldComments");
 	if(!oldCommentsList)
 		return console.log('ERROR');
@@ -521,8 +567,6 @@ async function autoRefreshTimerTick(){
 	let lastRefreshSpan = $(".bk-refresh-status-last-refresh");
 	let nextRefreshCounterSpan = $(".bk-refresh-status-next-refresh-counter");
 	let currTime = new Date();
-	console.log(currTime);
-	console.log(bkLastRefresh);
 	let timeSinceLastRefresh = currTime.getTime() - new Date(bkLastRefresh).getTime();
 	let timeUntilNextRefresh = convertTimeToUnit(boljiklixSettings.autoRefreshInterval - timeSinceLastRefresh);
   timeSinceLastRefresh = convertTimeToUnit(timeSinceLastRefresh);
@@ -532,7 +576,6 @@ async function autoRefreshTimerTick(){
 		'hours': 'sat',
 		'days': 'dan'
 	};
-  console.log(timeUntilNextRefresh);
 	let lastRefreshStr = `${Math.round(timeSinceLastRefresh.time)} ${shortVersion[timeSinceLastRefresh.unit]}`;
 	let nextRefreshStr = `${Math.round(timeUntilNextRefresh.time)} ${shortVersion[timeUntilNextRefresh.unit]}`;
 	lastRefreshSpan.text(lastRefreshStr);
@@ -545,3 +588,51 @@ async function autoRefreshTimerTick(){
 }
 
 setInterval(autoRefreshTimerTick, 1000);
+
+
+
+//  ############################### KOMENTARI #################################
+
+$("head").append(`
+<style>
+
+.tipkomentar {
+  position: relative;
+}
+
+.tipkomentar > span.minmax-btn {
+  position: absolute;
+  top: 10px;
+  right: 30px;
+}
+
+.tipkomentar > span.watch-thread-btn {
+  position: absolute;
+  top: 30px;
+  right: 30px;
+}
+
+</style>
+`);
+
+$(document).on('DOMNodeInserted', '.tipkomentar', function (e) {
+  let comment = $(e.target);
+  if(!comment.is('.tipkomentar'))
+    return;
+  $('<span class="minmax-btn" >[-]</span>').appendTo(comment).click((e)=>{
+    let responses = comment.next('.upis').nextUntil('.tipkomentar');
+    responses.toggle();
+    $(e.target).text($(e.target).text() == '[-]' ? '[+]' : '[-]');
+  });
+  $('<span class="watch-thread-btn" >Zaprati</span>').appendTo(comment).click((e)=>{
+    let dataId = comment.find(".komentar").attr('data-id');
+    if($(e.target).text() == 'Zaprati'){
+      followThread(dataId);
+      $(e.target).text('Prestani pratiti') ;
+    }else{
+      unfollowThread(dataId);
+      $(e.target).text('Zaprati');
+    }
+  });
+});
+

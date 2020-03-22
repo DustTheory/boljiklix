@@ -3,3 +3,5 @@ Admin je izbrisao vas post.
 Usernama highlight.
 @match fix
 Kad otvori thread ili notifikaciju makne i spasi.
+Adblock.
+Uklanjanje notifikacije ili unfollow threada skrola na top.
