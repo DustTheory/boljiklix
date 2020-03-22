@@ -22,6 +22,12 @@ $("head").append(`
   right: 30px;
 }
 
+.tipkomentar > span.watch-thread-btn {
+  position: absolute;
+  top: 30px;
+  right: 30px;
+}
+
 </style>
 `);
 
@@ -33,5 +39,10 @@ $(document).on('DOMNodeInserted', '.tipkomentar', function (e) {
     let responses = comment.next('.upis').nextUntil('.tipkomentar');
     responses.toggle();
     $(e.target).text($(e.target).text() == '[-]' ? '[+]' : '[-]');
+  });
+  $('<span class="watch-thread-btn" >Zaprati</span>').appendTo(comment).click((e)=>{
+    let dataId = comment.find(".komentar").attr('data-id');
+    console.log(dataId)
+    $(e.target).text($(e.target).text() == 'Zaprati' ? 'Prestani pratiti' : 'Zaprati');
   });
 });
