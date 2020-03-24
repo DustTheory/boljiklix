@@ -164,9 +164,11 @@ function generateNotification(type, commentId, valueChange, responseData){
 		notificationText = `Vas post ${commentId} je dobio ${valueChange} dislajkova`;
 	else if(type == 'response')
 		notificationText = `${responseData.responderUsername} je odgovorio na vas post ${commentId}: ${responseData.responseText}`;
+  else if(type == 'admindeleted')
+    notificationText = `Administrator kliksa je izbrisao vas post ${commentId};`;
 	return `
 		<div data-notificationdata="${notificationData}" class="bk-notification">
-			<a href="/komentar/${commentId}">${notificationText}</a>
+			<a class="bk-notification-text" href="/komentar/${commentId}">${notificationText}</a>
 			<a class="bk-delete-notification-btn" href="#">Ukloni</a>
 		</div>
 	`;
@@ -176,7 +178,7 @@ function generateNotification(type, commentId, valueChange, responseData){
 function generateThreadwatcherThread(threadId, comment, numResponses, numResponsesChange){
   return `
   		<div class="bk-threadwatcher-thread" id="bk-threadwathcer-thread-${threadId}">
-			<a href="/komentar/${threadId}">
+			<a class="bk-threadwatcher-thread-link" href="/komentar/${threadId}">
       <span class="${numResponsesChange > 0 ? 'bk-green': ''}">
       ${numResponses} (+${numResponsesChange})
       </span>
@@ -203,9 +205,10 @@ async function refreshThreadwatcher(){
   threadwatcher.empty();
   for(threadId  in threadwatcherData){
     let thread = threadwatcherData[threadId];
-    let responses = await getNewResponses(threadId, thread.lastCheck);
+    let responses = await getNewResponses(threadId, new Date(thread.lastCheck));
     let numResponses = thread.brojOdgovora;
     numResponses += responses.length;
+    getThreadwatcherThreadElement(threadId).remove();
     await createThreadwatcherThreadElement(thread, numResponses);
   }
 }
@@ -214,7 +217,8 @@ async function refreshThreadwatcher(){
 async function createThreadwatcherThreadElement(thread, newNumResponses = 0){
  let numResponsesChange = newNumResponses - thread.brojOdgovora;
  let threadwatcherThreadElement = $(generateThreadwatcherThread(thread.id, thread.komentar, newNumResponses, numResponsesChange )).appendTo(threadwatcher);    
-  threadwatcherThreadElement.find(".bk-delete-thread-btn").click(async () => {
+  threadwatcherThreadElement.find(".bk-delete-thread-btn").click(async (e) => {
+    e.preventDefault();
     await unfollowThread(thread.id);
   });
   return threadwatcherThreadElement;
@@ -222,12 +226,20 @@ async function createThreadwatcherThreadElement(thread, newNumResponses = 0){
 
 // Adds thread to threadwatcher
 async function followThread(threadId){
+  console.log(threadId);
   let threadwatcherData = await GM_getValue("boljiklix-threadwatcher", {});
   let thread = await getThread(threadId);
   thread.lastCheck = new Date();
   threadwatcherData[threadId] = thread;
+  console.log(thread);
   await createThreadwatcherThreadElement(thread);
+  console.log(threadwatcherData);
   await GM_setValue("boljiklix-threadwatcher", threadwatcherData);
+}
+
+async function updateThreadwatcherThreadStats(threadId){
+  getThreadwatcherThreadElement(threadId).remove();
+  await followThread(threadId);
 }
 
 // Returns the threadwatcherThread element inside threadwathcer with id
@@ -248,11 +260,22 @@ async function refreshNotifications() {
 	let newRateUps = {};
 	let newRateDowns = {};
 	let newResponses = [];
+  let adminDeleted = {};
   let username = getMyUsername();
 	if (!username)
 		return;
 	let commentsList = await getMyCommentsList(username);
 	let oldCommentsList = await GM_getValue("boljiklix-myOldComments", {});
+  if(commentsList.length < Object.keys(oldCommentsList).length){
+    let found = {};
+    commentsList.forEach(comment => {
+      found[comment.id] = true;
+    });
+    for(commentId in oldCommentsList){
+      if(!found[commentId] && commentId != -1)
+        adminDeleted[commentId] = true;
+    }
+  }
 	await Promise.all(commentsList.map(async (comment) => {
 		if (comment.id == -1)
 			return;
@@ -284,7 +307,7 @@ async function refreshNotifications() {
 			});
 		}
 	}));
-	renderNotifications(newRateUps, newRateDowns, newResponses, new Date());
+	renderNotifications(newRateUps, newRateDowns, newResponses, adminDeleted, new Date());
 };
 
 function getMyUsername() {
@@ -306,11 +329,10 @@ async function getThread(commentId){
 async function getNewResponses(commentId, lastResponse) {  
 	let result = await getThread(commentId);
   if(!result.odgovori)
-    return;
-	result.odgovori.filter(odg => {
+    return [];
+	return result.odgovori.filter(odg => {
 		return new Date(odg.datum) >= lastResponse;
 	});
-	return result.odgovori;
 }
 
 // Returns an array of comments by user ("komentar" objects). Number of comments returned is determined in boljiklixSettings.
@@ -352,13 +374,15 @@ function toggleThreadwatcher(){
 }
 
 
-async function renderNotifications(rateUps, rateDowns, responses, lastRefresh) {
+async function renderNotifications(rateUps, rateDowns, responses, adminDeleted, lastRefresh) {
 	bkLastRefresh = lastRefresh;
 	notifications.empty();
 	for(ru in rateUps)
 		notifications.append(generateNotification('rateup', ru, rateUps[ru]));
 	for(rd in rateDowns)
 		notifications.append(generateNotification('ratedown', rd, rateDowns[rd]));
+  for(ad in adminDeleted)
+    notifications.append(generateNotification('admindeleted', ad, adminDeleted[ad]));
 	responses.forEach(response => {
 		notifications.append(generateNotification('response', response[0], 1, {
 			responderUsername: response[1].username,
@@ -370,9 +394,18 @@ async function renderNotifications(rateUps, rateDowns, responses, lastRefresh) {
 		rateUps: rateUps,
 		rateDowns: rateDowns,
 		responses: responses,
+    adminDeleted: adminDeleted,
 		lastRefresh: lastRefresh
 	});
 }
+
+$(document).on('click', ".bk-notification .bk-notification-text", async (e) => {
+  e.preventDefault();
+  let url = $(e.target).attr('href');
+  let notification = $(e.target).closest('.bk-notification');
+	await deleteNotification(notification);
+  window.location.href = url;
+});
 
 async function loadThreadwatcher(){
   await refreshThreadwatcher();
@@ -383,12 +416,14 @@ async function loadNotifications(){
 		rateUps: {},
 		rateDowns: {},
 		responses: [],
+    adminDeleted: {},
 		lastRefresh: new Date()
 	});
 	let rateUps = notifications.rateUps;
 	let rateDowns = notifications.rateDowns;
 	let responses = notifications.responses;
-	renderNotifications(rateUps, rateDowns, responses, notifications.lastRefresh);
+  let adminDeleted = notifications.adminDeleted;
+	renderNotifications(rateUps, rateDowns, responses, adminDeleted, notifications.lastRefresh);
 }
 
 async function loadSettings(){
@@ -546,20 +581,39 @@ loadNotifications();
 loadThreadwatcher();
 
 $(document).on('click', '.bk-delete-notification-btn', async function(e){
+  e.preventDefault();
 	let notification = $(e.target).closest('.bk-notification');
-	let notificationData = JSON.parse(decodeURIComponent(notification.attr('data-notificationdata')));
+	deleteNotification(notification);
+});
+
+
+async function deleteNotification(notification){
+  let notificationData = JSON.parse(decodeURIComponent(notification.attr('data-notificationdata')));
+  let boljiklixNotifications = await GM_getValue("boljiklix-notifications");
 	let oldCommentsList = await GM_getValue("boljiklix-myOldComments");
 	if(!oldCommentsList)
 		return console.log('ERROR');
-	if(notificationData.type == 'rateup')
-		oldCommentsList[notificationData.commentId].rateup += notificationData.valueChange
-	else if(notificationData.type == 'ratedown')
-		oldCommentsList[notificationData.commentId].ratedown += notificationData.valueChange
-	else if(notificationData.type == 'response')
-		oldCommentsList[notificationData.commentId].brojOdgovora += notificationData.valueChange
+	if(notificationData.type == 'rateup'){
+		oldCommentsList[notificationData.commentId].rateup += notificationData.valueChange;
+    delete boljiklixNotifications.rateUps[notificationData.commentId];
+  }
+	else if(notificationData.type == 'ratedown'){
+		oldCommentsList[notificationData.commentId].ratedown += notificationData.valueChange;
+    delete boljiklixNotifications.rateDowns[notificationData.commentId];
+  }
+	else if(notificationData.type == 'response'){
+		oldCommentsList[notificationData.commentId].brojOdgovora += notificationData.valueChange;
+    
+    let toDeleteId = boljiklixNotifications.responses.findIndex(response => response.id == notificationData.id);
+    boljiklixNotifications.responses.splice(toDeleteId, 1);
+  }else if(notificationData.type == 'admindeleted'){
+    delete oldCommentsList[notificationData.commentId];
+    delete boljiklixNotifications.adminDeleted[notificationData.commentId];
+  }
 	notification.remove();
 	await GM_setValue("boljiklix-myOldComments", oldCommentsList);
-});
+  await GM_setValue("boljiklix-notifications", boljiklixNotifications);
+}
 
 async function autoRefreshTimerTick(){
 	if(!boljiklixSettings)
@@ -592,12 +646,15 @@ setInterval(autoRefreshTimerTick, 1000);
 
 
 //  ############################### KOMENTARI #################################
-
 $("head").append(`
 <style>
 
 .tipkomentar {
   position: relative;
+}
+
+.komentarTxt .bk-comment-tag {
+  color: blue;
 }
 
 .tipkomentar > span.minmax-btn {
@@ -612,27 +669,119 @@ $("head").append(`
   right: 30px;
 }
 
+.tipodgovor {
+    padding-left: 15px;
+    border-left: 3px solid #e6e6e6;
+    border-left-width: 3px;
+    border-left-style: solid;
+    border-left-color: rgb(230, 230, 230);
+}
+
+.tipodgovor:hover {
+    border-left-color: blue !important;
+}
+
 </style>
 `);
 
-$(document).on('DOMNodeInserted', '.tipkomentar', function (e) {
+let tagRegex = new RegExp("@[a-zA-Z1-9_.]+", "gim");
+
+
+$(document).on("click", ".bk-threadwatcher-thread-link", async (e) => {
+  e.preventDefault();
+  let linkElement = $(e.target);
+  if(!linkElement.is('.bk-threadwatcher-thread-link'))
+    linkElement = linkElement.closest(".bk-threadwatcher-thread-link");
+  let url = linkElement.attr('href');
+  let threadId = parseInt(url.split('/komentar/')[1]);
+  await updateThreadwatcherThreadStats(threadId);
+  window.location.href = url;
+});
+
+
+$(document).on('DOMNodeInserted', '.tipkomentar, .tipodgovor', async function (e) {
   let comment = $(e.target);
-  if(!comment.is('.tipkomentar'))
+  
+  if(!comment.is('.tipkomentar') && !comment.is('.tipodgovor'))
     return;
-  $('<span class="minmax-btn" >[-]</span>').appendTo(comment).click((e)=>{
-    let responses = comment.next('.upis').nextUntil('.tipkomentar');
-    responses.toggle();
-    $(e.target).text($(e.target).text() == '[-]' ? '[+]' : '[-]');
-  });
-  $('<span class="watch-thread-btn" >Zaprati</span>').appendTo(comment).click((e)=>{
-    let dataId = comment.find(".komentar").attr('data-id');
-    if($(e.target).text() == 'Zaprati'){
-      followThread(dataId);
-      $(e.target).text('Prestani pratiti') ;
-    }else{
-      unfollowThread(dataId);
-      $(e.target).text('Zaprati');
+  
+  // Highlight @username tags
+  let commentText = comment.find('.komentarTxt').html();
+  let tags = commentText.match(tagRegex);
+  if(tags){
+    tags.forEach(tag => {
+        commentText = commentText.replace(tag, '<span class="bk-comment-tag">'+tag+'</span>')
+    });
+    comment.find('.komentarTxt').html(commentText);
+  }   
+  
+  let initialLoadedThreadwatcherData = await GM_getValue("boljiklix-threadwatcher", {});   // SUPER SLOOOOW FIX l8r
+  let commentId = comment.find('.komentar').attr('data-id');
+  if(initialLoadedThreadwatcherData[commentId])
+    updateThreadwatcherThreadStats(commentId);
+  
+  
+  // On click on left border hide thread
+  $(e.target).click(function(e1){
+    if(e1.offsetX <= parseInt($(e.target).css('borderLeftWidth'))){
+      
+      if(comment.is('.tipkomentar')){
+        hideThread(comment);
+      }else{
+        hideThread(comment.prevAll(".tipkomentar:first"));
+      }
     }
   });
+  
+  // Parent comment specific 
+  if(!comment.is('.tipkomentar'))
+    return;
+ 
+  $('<span class="minmax-btn" >[-]</span>').appendTo(comment).click((e)=> hideThread(comment));
+  
+  // Add thread follow button
+  $('<span class="watch-thread-btn" >Zaprati</span>').appendTo(comment).click((e) => followThreadButtonEvent(e, comment));
 });
+
+
+function hideThread(comment){
+    let responses = comment.next('.upis').nextUntil('.tipkomentar');
+    let hideShowToggle = comment.find('.minmax-btn');
+    responses.toggle();
+    hideShowToggle.text(hideShowToggle.text() == '[-]' ? '[+]' : '[-]');
+}
+
+function followThreadButtonEvent(e, comment){
+  let dataId = comment.find(".komentar").attr('data-id');
+  if($(e.target).text() == 'Zaprati'){
+    followThread(dataId);
+    $(e.target).text('Prestani pratiti') ;
+  }else{
+    unfollowThread(dataId);
+    $(e.target).text('Zaprati');
+  }
+}
+
+// ############################################## ADBLOCK #######################################
+$("#ads_leaderboard").remove();
+
+
+// ##################################### MISC ###################################################
+if (!Object.keys) {
+    Object.keys = function (obj) {
+        var keys = [],
+            k;
+        for (k in obj) {
+            if (Object.prototype.hasOwnProperty.call(obj, k)) {
+                keys.push(k);
+            }
+        }
+        return keys;
+    };
+}
+
+
+
+
+
 
