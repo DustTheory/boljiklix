@@ -1,4 +1,5 @@
 // ==UserScript==
+
 // @name        BoljiKlix 
 // @namespace   Violentmonkey Scripts
 // @match       https://www.klix.ba/*
@@ -6,9 +7,10 @@
 // @grant GM_setValue
 // @grant GM.getValue
 // @grant GM.setValue
-// @version     0.0.1
+// @version     0.0.2
 // @author      ishakd00
-// @description 3/20/2020, 21:31:00 PM
+// @description 5/15/2020, 11:46:00 PM
+// @require https://ajax.googleapis.com/ajax/libs/jquery/3.4.1/jquery.min.js 
 // ==/UserScript==
 
 $("head").append(`
