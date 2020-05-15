@@ -1,0 +1,142 @@
+body {
+    margin: 0;
+    padding: 0;
+    font-family: 'Open Sans', Segoe UI, sans-serif;
+    color: #333;
+
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+.main-container {
+    width: 70%;
+    margin: 0 auto;
+    padding-bottom: 100px;
+}
+
+.about {
+    width: 100%;
+    height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    flex-direction: column;
+    text-align: center;
+}
+
+.about .klix-logo {
+    width: 30%;
+    max-width: 200px;
+}
+
+.about h1 {
+
+}
+
+.about h3 {
+    color: #444;
+    margin: 0;
+}
+
+.about h4, h5 {
+   margin: 0;
+   padding: 0;
+}
+
+.about a {
+    color: #28a8cf;
+}
+
+.about .browsers img {
+    width: 45px;
+}
+
+.about .buttons {
+    margin: 30px 0;
+}
+
+.about .buttons button {
+    background-color: white;
+    border: none;
+    text-align: center;
+    text-decoration: none;
+    display: inline-block;
+    width: 120px;
+    padding: 10px;
+    margin: 5px 10px;
+    cursor: pointer;
+    font-weight: bold;
+}
+
+.about .buttons button:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 7px 14px rgba(50, 50, 93, 0.1), 0 3px 6px rgba(0, 0, 0, 0.08);
+}
+
+
+.about button.more-btn {
+    background-color: #666666;
+    color: white;
+}
+
+
+.about button.install-btn {
+    background-color: #2cccfb;
+    color: white;
+}
+
+.screenshot {
+    max-width: 300px;
+    width: 100%;
+    transition: transform 0.25s ease;
+    cursor: zoom-in;
+}
+
+.screenshot:hover {
+    transform: translate(1px, -1px);
+    box-shadow: 0 7px 14px rgba(50, 50, 93, 0.1), 0 3px 6px rgba(0, 0, 0, 0.08);
+}
+
+.container {
+    position: relative;
+    width: 100%;
+}
+
+input[type=checkbox]{
+    display: none;
+}
+  
+input[type=checkbox]:checked ~ label > img {
+    cursor: zoom-out;
+}
+
+input[type=checkbox]:checked ~ .screenshot-popup{
+    display: flex;
+}
+
+.screenshot-popup {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    display: none;
+    background-color: rgba(104, 104, 104, 0.431);
+}
+
+.screenshot-popup img {
+    width: 70vw;
+    cursor: zoom-out;
+}
+
+@media only screen and (max-width: 1200px) {
+   .screenshot-popup img {
+       width: 99vw;
+   }
+
+}
+
